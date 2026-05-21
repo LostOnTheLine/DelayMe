@@ -24,12 +24,15 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc musl-tools gcc-aarch64-linux-gnu
+          sudo apt-get install -y \
+            musl-tools \
+            gcc-aarch64-linux-gnu
 
       - name: Bump version
         id: version
         run: |
           VERSION=$(cat VERSION)
+
           IFS='.' read -r major minor patch <<< "$VERSION"
 
           case "${{ github.event.inputs.bump }}" in
@@ -48,18 +51,28 @@ jobs:
           esac
 
           NEW_VERSION="$major.$minor.$patch"
+
           echo "$NEW_VERSION" > VERSION
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Build amd64
         run: |
-          make CC=gcc
-          mv delayme delayme-amd64
+          make clean
+
+          make \
+            CC=musl-gcc
+
+          mv delayme delayme-linux-amd64
 
       - name: Build arm64
         run: |
-          make CC=aarch64-linux-gnu-gcc
-          mv delayme delayme-arm64
+          make clean
+
+          make \
+            CC=aarch64-linux-gnu-gcc \
+            LDFLAGS="-static"
+
+          mv delayme delayme-linux-arm64
 
       - name: Commit version bump
         run: |
@@ -67,8 +80,11 @@ jobs:
           git config user.email "github-actions@github.com"
 
           git add VERSION
+
           git commit -m "release v${{ steps.version.outputs.NEW_VERSION }}"
+
           git tag v${{ steps.version.outputs.NEW_VERSION }}
+
           git push origin HEAD --tags
 
       - name: Create GitHub release
@@ -76,5 +92,5 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.NEW_VERSION }}
           files: |
-            delayme-amd64
-            delayme-arm64
+            delayme-linux-amd64
+            delayme-linux-arm64
