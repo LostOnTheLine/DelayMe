@@ -1,0 +1,33 @@
+name: build
+
+on:
+#  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        cc:
+          - gcc
+          - musl-gcc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: |
+          make CC=${{ matrix.cc }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: delayme-${{ matrix.cc }}
+          path: delayme
