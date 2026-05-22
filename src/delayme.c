@@ -92,7 +92,9 @@ static void countmsg(const char *fmt, ...) {
 static void usage(void) {
     printf(
 "Usage: delayme [options] <program> [args...]\n\n"
+"\n"
 "Options:\n"
+"\n"
 "  -s, --sleep SEC          Initial delay before first run\n"
 "  -t, --timeout SEC        Kill child if it runs longer than this\n"
 "  -r, --retries N          Retry up to N times on failure\n"
@@ -121,35 +123,41 @@ static bool file_exists(const char *path) {
 }
 
 static bool port_open(const char *hostport) {
-    char host[256] = "localhost", portstr[32];
+    char host[256];
+    char portstr[32];
+
     if (sscanf(hostport, "%255[^:]:%31s", host, portstr) != 2)
-        if (sscanf(hostport, "%31s", portstr) != 1) return false;
+        return false;
 
-    struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
-    struct addrinfo *result = NULL, *rp;
+    struct addrinfo hints = {0};
+    struct addrinfo *result = NULL;
+    struct addrinfo *rp;
 
-    if (getaddrinfo(host, portstr, &hints, &result) != 0) return false;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int ret = getaddrinfo(host, portstr, &hints, &result);
+    if (ret != 0) return false;
 
     bool success = false;
-    for (rp = result; rp; rp = rp->ai_next) {
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
         int sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (sock >= 0) {
-            if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
-                success = true;
-                close(sock);
-                break;
-            }
+        if (sock < 0) continue;
+        if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
+            success = true;
             close(sock);
+            break;
         }
+        close(sock);
     }
     freeaddrinfo(result);
     return success;
 }
 
-/* ... regex_match, parse_exit_codes, exit_code_matches, resolve_command, format_command ... */
 static bool regex_match(const char *pattern, const char *text) {
     regex_t regex;
-    if (regcomp(&regex, pattern, REG_EXTENDED | REG_NOSUB) != 0) return false;
+    if (regcomp(&regex, pattern, REG_EXTENDED | REG_NOSUB) != 0)
+        return false;
     bool matched = regexec(&regex, text, 0, NULL, 0) == 0;
     regfree(&regex);
     return matched;
@@ -167,14 +175,16 @@ static void parse_exit_codes(const char *str, int *codes, int *count) {
     free(copy);
 }
 
-static bool exit_code_matches(int code, const int *codes, int count) {
-    for (int i = 0; i < count; i++)
+static bool exit_code_matches(int code, int *codes, int count) {
+    for (int i = 0; i < count; i++) {
         if (codes[i] == code) return true;
+    }
     return false;
 }
 
 static char *resolve_command(char *cmd) {
     static char resolved[PATH_MAX];
+
     if (path_mode == PATH_ABSOLUTE) {
         if (cmd[0] != '/') {
             fprintf(stderr, "absolute path required: %s\n", cmd);
@@ -182,15 +192,21 @@ static char *resolve_command(char *cmd) {
         }
         return cmd;
     }
+
     if (path_mode == PATH_RELATIVE) {
         char exe[PATH_MAX];
-        ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe)-1);
-        if (len < 0) { perror("readlink"); exit(125); }
+        ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+        if (len < 0) {
+            perror("readlink");
+            exit(125);
+        }
         exe[len] = '\0';
-        snprintf(resolved, sizeof(resolved), "%s/%s", dirname(exe), cmd);
+        char *dir = dirname(exe);
+        snprintf(resolved, sizeof(resolved), "%s/%s", dir, cmd[0] == '/' ? cmd + 1 : cmd);
         return resolved;
     }
-    return cmd;
+
+    return cmd;  /* normal PATH resolution */
 }
 
 static void format_command(char *buf, size_t size, char **argv, int start) {
@@ -201,7 +217,7 @@ static void format_command(char *buf, size_t size, char **argv, int start) {
     }
 }
 
-/* ====================== RUN CHILD ====================== */
+/* ====================== CHILD EXECUTION ====================== */
 
 typedef struct {
     int exit_code;
@@ -209,24 +225,31 @@ typedef struct {
 } run_result_t;
 
 static run_result_t run_child(char **argv, int optind, bool capture) {
-    run_result_t res = {.exit_code = 125, .output = {0}};
+    run_result_t res = { .exit_code = 125, .output = {0} };
     int stdout_pipe[2] = {-1,-1}, stderr_pipe[2] = {-1,-1};
     size_t out_len = 0;
 
-    if (capture && (pipe(stdout_pipe) < 0 || pipe(stderr_pipe) < 0)) {
-        perror("pipe");
-        return res;
+    if (capture) {
+        if (pipe(stdout_pipe) < 0 || pipe(stderr_pipe) < 0) {
+            perror("pipe");
+            return res;
+        }
     }
 
     pid_t pid = fork();
-    if (pid < 0) { perror("fork"); return res; }
+    if (pid < 0) {
+        perror("fork");
+        return res;
+    }
 
     if (pid == 0) {
         if (capture) {
-            close(stdout_pipe[0]); close(stderr_pipe[0]);
+            close(stdout_pipe[0]);
+            close(stderr_pipe[0]);
             dup2(stdout_pipe[1], STDOUT_FILENO);
             dup2(stderr_pipe[1], STDERR_FILENO);
-            close(stdout_pipe[1]); close(stderr_pipe[1]);
+            close(stdout_pipe[1]);
+            close(stderr_pipe[1]);
         }
         execvp(argv[optind], &argv[optind]);
         perror("execvp");
@@ -234,7 +257,8 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
     }
 
     if (capture) {
-        close(stdout_pipe[1]); close(stderr_pipe[1]);
+        close(stdout_pipe[1]);
+        close(stderr_pipe[1]);
     }
 
     bool child_exited = false;
@@ -245,10 +269,17 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
             fd_set readfds;
             FD_ZERO(&readfds);
             int maxfd = -1;
-            if (stdout_pipe[0] >= 0) { FD_SET(stdout_pipe[0], &readfds); if (stdout_pipe[0] > maxfd) maxfd = stdout_pipe[0]; }
-            if (stderr_pipe[0] >= 0) { FD_SET(stderr_pipe[0], &readfds); if (stderr_pipe[0] > maxfd) maxfd = stderr_pipe[0]; }
 
-            struct timeval tv = {.tv_sec = 0, .tv_usec = 100000};
+            if (stdout_pipe[0] >= 0) {
+                FD_SET(stdout_pipe[0], &readfds);
+                if (stdout_pipe[0] > maxfd) maxfd = stdout_pipe[0];
+            }
+            if (stderr_pipe[0] >= 0) {
+                FD_SET(stderr_pipe[0], &readfds);
+                if (stderr_pipe[0] > maxfd) maxfd = stderr_pipe[0];
+            }
+
+            struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
             if (maxfd >= 0 && select(maxfd + 1, &readfds, NULL, NULL, &tv) > 0) {
                 char buf[512];
                 int fds[2] = {stdout_pipe[0], stderr_pipe[0]};
@@ -259,6 +290,7 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
                         if (n > 0) {
                             fwrite(buf, 1, n, i == 0 ? stdout : stderr);
                             fflush(i == 0 ? stdout : stderr);
+
                             if (out_len + n < sizeof(res.output) - 1) {
                                 memcpy(res.output + out_len, buf, n);
                                 out_len += n;
@@ -296,6 +328,7 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
         if (stdout_pipe[0] >= 0) close(stdout_pipe[0]);
         if (stderr_pipe[0] >= 0) close(stderr_pipe[0]);
     }
+
     return res;
 }
 
@@ -356,40 +389,56 @@ int main(int argc, char **argv) {
     char command[1024];
     format_command(command, sizeof(command), argv, optind);
 
-    /* === Initial Sleep === */
     if (sleep_sec > 0) {
         int elapsed = 0;
         while (elapsed < sleep_sec) {
             int remain = sleep_sec - elapsed;
             int step = count_sec > 0 ? count_sec : remain;
             if (step > remain) step = remain;
-            if (count_sec > 0) countmsg("%d", elapsed + step);
+
+            if (count_sec > 0) {
+                if (verbose)
+                    countmsg("DelayMe Wait %d: %s", remain, command);
+                else
+                    countmsg("%d", elapsed + step);
+            }
             sleep(step);
             elapsed += step;
         }
     }
 
-    /* === Wait for file === */
     if (ready_file) {
+        int elapsed = 0;
         while (!file_exists(ready_file)) {
             int step = count_sec > 0 ? count_sec : interval_sec;
-            if (count_sec > 0) countmsg("Waiting for file... %d", step);
+            elapsed += step;
+            if (count_sec > 0) {
+                if (verbose)
+                    countmsg("DelayMe File Wait %d: %s", elapsed, command);
+                else
+                    countmsg("%d", elapsed);
+            }
             sleep(step);
         }
-        if (verbose) logmsg("File ready: %s", ready_file);
+        if (verbose) logmsg("DelayMe File Available Run %s", command);
     }
 
-    /* === Wait for port === */
     if (wait_port) {
+        int elapsed = 0;
         while (!port_open(wait_port)) {
             int step = count_sec > 0 ? count_sec : interval_sec;
-            if (count_sec > 0) countmsg("Waiting for port... %d", step);
+            elapsed += step;
+            if (count_sec > 0) {
+                if (verbose)
+                    countmsg("DelayMe Port Wait %d: %s", elapsed, command);
+                else
+                    countmsg("%d", elapsed);
+            }
             sleep(step);
         }
-        if (verbose) logmsg("Port ready: %s", wait_port);
+        if (verbose) logmsg("DelayMe Port Available Run %s", command);
     }
 
-    /* Resolve command */
     argv[optind] = resolve_command(argv[optind]);
 
     bool need_capture = success_match || retry_match || success_string || retry_string;
