@@ -192,3 +192,4 @@ By contributing to this project, you agree that your contributions are licensed 
 
 1. Add customizable max output size variable
 2. Add timout for port waits (currently ∞)
+3. Fix STDERR/STDOUT combined passthrough
