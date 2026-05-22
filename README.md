@@ -187,3 +187,8 @@ For commercial licensing inquiries, contact via GitHub.
 ## Contributing
 
 By contributing to this project, you agree that your contributions are licensed under the same terms as the project license.
+
+## Pending Additions
+
+1. Add customizable max output size variable
+2. Add timout for port waits (currently ∞)

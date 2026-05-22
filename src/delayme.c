@@ -435,9 +435,7 @@ int main(int argc, char **argv) {
         }
 
         close(pipefd[1]);
-
         char output[8192] = {0};
-
         ssize_t total = 0;
 
         int flags = fcntl(pipefd[0], F_GETFL, 0);
@@ -449,9 +447,10 @@ int main(int argc, char **argv) {
         int status;
         time_t start = time(NULL);
 
+        bool child_exited = false;
+
         while (1) {
             char buf[512];
-
             ssize_t n =
                 read(pipefd[0],
                      buf,
@@ -468,24 +467,40 @@ int main(int argc, char **argv) {
                     output[total] = '\0';
                 }
             }
+            else if (n < 0 &&
+                     errno != EAGAIN &&
+                     errno != EWOULDBLOCK) {
 
-            pid_t result =
-                waitpid(pid,
-                        &status,
-                        WNOHANG);
+                perror("read");
+                break;
+            }
 
-            if (result == pid)
+            if (!child_exited) {
+                pid_t result =
+                    waitpid(pid,
+                            &status,
+                            WNOHANG);
+
+                if (result == pid)
+                    child_exited = true;
+                else if (result < 0) {
+                    perror("waitpid");
+                    close(pipefd[0]);
+                    return 125;
+                }
+            }
+
+            if (child_exited && n == 0)
                 break;
 
-            if (timeout_sec > 0 &&
+            if (!child_exited &&
+                timeout_sec > 0 &&
                 (time(NULL) - start) >= timeout_sec) {
 
                 kill(pid, SIGKILL);
-
                 waitpid(pid, &status, 0);
-
+                close(pipefd[0]);
                 logmsg("timeout exceeded");
-
                 return 124;
             }
 
