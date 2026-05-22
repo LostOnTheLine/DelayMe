@@ -47,6 +47,9 @@ static path_mode_t path_mode = PATH_AUTO;
 static char *success_match = NULL;
 static char *retry_match = NULL;
 
+static char *success_string = NULL;
+static char *retry_string = NULL;
+
 #define MAX_EXIT_CODES 32
 
 static int success_exit_codes[MAX_EXIT_CODES];
@@ -98,8 +101,17 @@ static void usage(void) {
 "--absolute\n"
 "        Require absolute executable path\n"
 "\n"
-"--success-match STR\n"
-"--retry-match STR\n"
+"--success-match REGEX\n"
+"        Success if output matches regex\n"
+"\n"
+"--retry-match REGEX\n"
+"        Retry if output matches regex\n"
+"\n"
+"--success-string TEXT\n"
+"        Success if output contains literal text\n"
+"\n"
+"--retry-string TEXT\n"
+"        Retry if output contains literal text\n"
 "\n"
 "--success-exit CODES\n"
 "--retry-exit CODES\n"
@@ -120,37 +132,55 @@ static bool file_exists(const char *path) {
 
 static bool port_open(const char *hostport) {
     char host[256];
-    int port = 0;
+    char portstr[32];
 
-    sscanf(hostport, "%255[^:]:%d", host, &port);
-
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (sock < 0)
+    if (sscanf(hostport,
+               "%255[^:]:%31s",
+               host,
+               portstr) != 2)
         return false;
 
-    struct hostent *he = gethostbyname(host);
+    struct addrinfo hints = {0};
+    struct addrinfo *result = NULL;
+    struct addrinfo *rp;
 
-    if (!he) {
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    int ret =
+        getaddrinfo(host,
+                    portstr,
+                    &hints,
+                    &result);
+
+    if (ret != 0)
+        return false;
+
+    bool success = false;
+
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        int sock =
+            socket(rp->ai_family,
+                   rp->ai_socktype,
+                   rp->ai_protocol);
+
+        if (sock < 0)
+            continue;
+
+        if (connect(sock,
+                    rp->ai_addr,
+                    rp->ai_addrlen) == 0) {
+            success = true;
+            close(sock);
+            break;
+        }
+
         close(sock);
-        return false;
     }
 
-    struct sockaddr_in addr = {0};
+    freeaddrinfo(result);
 
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-
-    memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
-
-    int result =
-        connect(sock,
-                (struct sockaddr *)&addr,
-                sizeof(addr));
-
-    close(sock);
-
-    return result == 0;
+    return success;
 }
 
 static bool regex_match(const char *pattern,
@@ -200,46 +230,47 @@ static bool exit_code_matches(int code,
     return false;
 }
 
-static char *resolve_command(char *argv0,
-                             char *cmd) {
+static char *resolve_command(char *cmd) {
     static char resolved[PATH_MAX];
-
-    if (path_mode == PATH_AUTO)
-        return cmd;
 
     if (path_mode == PATH_ABSOLUTE) {
         if (cmd[0] != '/') {
             fprintf(stderr,
-                    "absolute path required\n");
+                    "absolute path required: %s\n",
+                    cmd);
             exit(125);
         }
 
         return cmd;
     }
 
-    char exe_path[PATH_MAX];
+    if (path_mode == PATH_RELATIVE) {
+        char exe[PATH_MAX];
+        ssize_t len;
 
-    ssize_t len =
-        readlink("/proc/self/exe",
-                 exe_path,
-                 sizeof(exe_path) - 1);
+        len = readlink("/proc/self/exe",
+                       exe,
+                       sizeof(exe) - 1);
 
-    if (len < 0) {
-        perror("readlink");
-        exit(125);
+        if (len < 0) {
+            perror("readlink");
+            exit(125);
+        }
+
+        exe[len] = '\0';
+
+        char *dir = dirname(exe);
+
+        snprintf(resolved,
+                 sizeof(resolved),
+                 "%s/%s",
+                 dir,
+                 cmd);
+
+        return resolved;
     }
 
-    exe_path[len] = '\0';
-
-    char *dir = dirname(exe_path);
-
-    snprintf(resolved,
-             sizeof(resolved),
-             "%s/%s",
-             dir,
-             cmd);
-
-    return resolved;
+    return cmd;
 }
 
 int main(int argc, char **argv) {
@@ -262,6 +293,8 @@ int main(int argc, char **argv) {
         {"retry-match", required_argument, 0, 7},
         {"success-exit", required_argument, 0, 8},
         {"retry-exit", required_argument, 0, 9},
+        {"success-string", required_argument, 0, 10},
+        {"retry-string", required_argument, 0, 11},
         {0, 0, 0, 0}
     };
 
@@ -338,6 +371,14 @@ int main(int argc, char **argv) {
                                  retry_exit_codes,
                                  &retry_exit_count);
                 break;
+
+            case 10:
+                success_string = optarg;
+                break;
+
+            case 11:
+                retry_string = optarg;
+                break;
         }
     }
 
@@ -358,8 +399,9 @@ int main(int argc, char **argv) {
         sleep(interval_sec);
 
     char *cmd =
-        resolve_command(argv[0],
-                        argv[optind]);
+        resolve_command(argv[optind]);
+
+    argv[optind] = cmd;
 
     int attempt = 0;
 
@@ -385,7 +427,8 @@ int main(int argc, char **argv) {
             close(pipefd[0]);
             close(pipefd[1]);
 
-            execvp(cmd, &argv[optind]);
+            execvp(argv[optind],
+                   &argv[optind]);
 
             perror("execvp");
             exit(125);
@@ -460,6 +503,11 @@ int main(int argc, char **argv) {
                         output))
             return 0;
 
+        if (success_string &&
+            strstr(output,
+                   success_string))
+            return 0;
+
         if (exit_code_matches(exit_code,
                               success_exit_codes,
                               success_exit_count))
@@ -470,6 +518,11 @@ int main(int argc, char **argv) {
         if (retry_match &&
             regex_match(retry_match,
                         output))
+            should_retry = true;
+
+        if (retry_string &&
+            strstr(output,
+                   retry_string))
             should_retry = true;
 
         if (exit_code_matches(exit_code,

@@ -1,4 +1,4 @@
-[![Build](https://github.com/LostOnTheLine/DelayMe/actions/workflows/build.yml/badge.svg)](https://github.com/LostOnTheLine/DelayMe/actions)
+[![release](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml/badge.svg)](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)]()
 [![Version](https://img.shields.io/github/v/release/LostOnTheLine/DelayMe)]()
 
@@ -89,10 +89,25 @@ delayme --ready-file /tmp/ready ./httpscheck
 ```
 
 Relative execution:
+    `--relative` forces executable resolution relative to the DelayMe binary location.
+
+`/healthcheck/delayme` with: `delayme --relative /bin/check` executes: `/healthcheck/bin/check`
+
+This allows portable mount locations inside containers.
 
 ```bash
-delayme --relative binary
+delayme --relative bin/check
 ```
+
+```bash
+delayme --relative /bin/check
+```
+
+```bash
+delayme --relative /path/to/delayme/location/bin/check
+```
+
+Resolve the same.
 
 Timeout:
 
@@ -122,11 +137,26 @@ delayme -r 5 -i 2 \
 ```
 
 Output matching:
+    Currently limited to 8191bytes
 
 ```bash
-delayme --success-match healthy \
-        --retry-match warming \
+delayme --success-match "healthy|ready" \
+        --retry-match "warming|starting" \
         ./check-service
+```
+
+Literal string output matching:
+
+```bash
+delayme --success-string "service healthy" \
+        --retry-string "warming up" \
+        ./check-service
+```
+
+Literal string matching does not interpret regex characters.
+
+```bash
+delayme --success-string "collected with [t*42]" ./check
 ```
 
 ## Exit Codes

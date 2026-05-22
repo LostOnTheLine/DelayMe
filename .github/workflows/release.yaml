@@ -1,5 +1,8 @@
 name: release
 
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
     inputs:
@@ -20,19 +23,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            musl-tools \
-            gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc musl-tools gcc-aarch64-linux-gnu
 
       - name: Bump version
         id: version
         run: |
           VERSION=$(cat VERSION)
-
           IFS='.' read -r major minor patch <<< "$VERSION"
 
           case "${{ github.event.inputs.bump }}" in
@@ -58,34 +59,32 @@ jobs:
       - name: Build amd64
         run: |
           make clean
-
-          make \
-            CC=musl-gcc
-
+          make CC=musl-gcc
           mv delayme delayme-linux-amd64
 
       - name: Build arm64
         run: |
           make clean
-
           make \
             CC=aarch64-linux-gnu-gcc \
             LDFLAGS="-static"
-
           mv delayme delayme-linux-arm64
 
       - name: Commit version bump
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
           git add VERSION
-
-          git commit -m "release v${{ steps.version.outputs.NEW_VERSION }}"
-
+          git commit -m "release v${{ steps.version.outputs.NEW_VERSION }}" || true
           git tag v${{ steps.version.outputs.NEW_VERSION }}
 
-          git push origin HEAD --tags
+          git push \
+            https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git \
+            HEAD:main \
+            --tags
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
