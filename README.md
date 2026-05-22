@@ -1,6 +1,6 @@
 [![release](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml/badge.svg)](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](https://github.com/LostOnTheLine/DelayMe?tab=License-1-ov-file)
-[![Version](https://img.shields.io/github/v/release/LostOnTheLine/DelayMe?display_name=tag)](https://github.com/LostOnTheLine/DelayMe/releases)
+[![Version](https://img.shields.io/github/v/release/LostOnTheLine/DelayMe?display_name=tag)](https://github.com/LostOnTheLine/DelayMe/releases/latest)
 
 # DelayMe
 A tiny Linux utility for delayed & conditional execution of binaries. Originally created to solve orchestration limitations in shell-less Docker healthcheck environments, but useful anywhere precise startup timing & execution control is needed.
