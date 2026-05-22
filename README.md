@@ -104,7 +104,7 @@ delayme --relative /bin/check
 ```
 
 ```bash
-delayme --relative /path/to/delayme/location/bin/check
+delayme /path/to/delayme/location/bin/check
 ```
 
 Resolve the same.
