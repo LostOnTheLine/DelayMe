@@ -440,7 +440,11 @@ int main(int argc, char **argv) {
 
         ssize_t total = 0;
 
-        fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
+        int flags = fcntl(pipefd[0], F_GETFL, 0);
+        if (flags >= 0)
+            fcntl(pipefd[0],
+                  F_SETFL,
+                  flags | O_NONBLOCK);
 
         int status;
         time_t start = time(NULL);

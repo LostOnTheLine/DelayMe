@@ -1,6 +1,6 @@
 [![release](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml/badge.svg)](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)]()
-[![Version](https://img.shields.io/github/v/release/LostOnTheLine/DelayMe)]()
+[![Version](https://img.shields.io/github/v/release/LostOnTheLine/DelayMe?display_name=tag)]()
 
 # DelayMe
 A tiny Linux utility for delayed & conditional execution of binaries. Originally created to solve orchestration limitations in shell-less Docker healthcheck environments, but useful anywhere precise startup timing & execution control is needed.
@@ -137,7 +137,7 @@ delayme -r 5 -i 2 \
 ```
 
 Output matching:
-    Currently limited to 8191bytes
+    Output matching currently inspects up to 8191 bytes of combined stdout/stderr output.
 
 ```bash
 delayme --success-match "healthy|ready" \
