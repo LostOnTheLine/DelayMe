@@ -115,18 +115,17 @@ static void usage(void) {
     );
 }
 
-/* Helper functions */
 static bool file_exists(const char *path) {
     struct stat st;
     return stat(path, &st) == 0;
 }
 
-static bool port_open(const char *hostport) { /* unchanged */ 
-    /* ... your original port_open implementation ... */
-    char host[256], portstr[32];
-    if (sscanf(hostport, "%255[^:]:%31s", host, portstr) != 2) return false;
+static bool port_open(const char *hostport) {
+    char host[256] = "localhost", portstr[32];
+    if (sscanf(hostport, "%255[^:]:%31s", host, portstr) != 2)
+        if (sscanf(hostport, "%31s", portstr) != 1) return false;
 
-    struct addrinfo hints = { .ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM };
+    struct addrinfo hints = {.ai_family = AF_UNSPEC, .ai_socktype = SOCK_STREAM};
     struct addrinfo *result = NULL, *rp;
 
     if (getaddrinfo(host, portstr, &hints, &result) != 0) return false;
@@ -134,22 +133,23 @@ static bool port_open(const char *hostport) { /* unchanged */
     bool success = false;
     for (rp = result; rp; rp = rp->ai_next) {
         int sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
-        if (sock < 0) continue;
-        if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
-            success = true;
+        if (sock >= 0) {
+            if (connect(sock, rp->ai_addr, rp->ai_addrlen) == 0) {
+                success = true;
+                close(sock);
+                break;
+            }
             close(sock);
-            break;
         }
-        close(sock);
     }
     freeaddrinfo(result);
     return success;
 }
 
+/* ... regex_match, parse_exit_codes, exit_code_matches, resolve_command, format_command ... */
 static bool regex_match(const char *pattern, const char *text) {
     regex_t regex;
-    if (regcomp(&regex, pattern, REG_EXTENDED | REG_NOSUB) != 0)
-        return false;
+    if (regcomp(&regex, pattern, REG_EXTENDED | REG_NOSUB) != 0) return false;
     bool matched = regexec(&regex, text, 0, NULL, 0) == 0;
     regfree(&regex);
     return matched;
@@ -201,7 +201,7 @@ static void format_command(char *buf, size_t size, char **argv, int start) {
     }
 }
 
-/* ====================== CHILD EXECUTION ====================== */
+/* ====================== RUN CHILD ====================== */
 
 typedef struct {
     int exit_code;
@@ -209,24 +209,19 @@ typedef struct {
 } run_result_t;
 
 static run_result_t run_child(char **argv, int optind, bool capture) {
-    run_result_t res = { .exit_code = 125, .output = {0} };
+    run_result_t res = {.exit_code = 125, .output = {0}};
     int stdout_pipe[2] = {-1,-1}, stderr_pipe[2] = {-1,-1};
     size_t out_len = 0;
 
-    if (capture) {
-        if (pipe(stdout_pipe) < 0 || pipe(stderr_pipe) < 0) {
-            perror("pipe");
-            return res;
-        }
-    }
-
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("fork");
+    if (capture && (pipe(stdout_pipe) < 0 || pipe(stderr_pipe) < 0)) {
+        perror("pipe");
         return res;
     }
 
-    if (pid == 0) {  /* child */
+    pid_t pid = fork();
+    if (pid < 0) { perror("fork"); return res; }
+
+    if (pid == 0) {
         if (capture) {
             close(stdout_pipe[0]); close(stderr_pipe[0]);
             dup2(stdout_pipe[1], STDOUT_FILENO);
@@ -238,7 +233,6 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
         _exit(125);
     }
 
-    /* parent */
     if (capture) {
         close(stdout_pipe[1]); close(stderr_pipe[1]);
     }
@@ -251,12 +245,10 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
             fd_set readfds;
             FD_ZERO(&readfds);
             int maxfd = -1;
-
             if (stdout_pipe[0] >= 0) { FD_SET(stdout_pipe[0], &readfds); if (stdout_pipe[0] > maxfd) maxfd = stdout_pipe[0]; }
             if (stderr_pipe[0] >= 0) { FD_SET(stderr_pipe[0], &readfds); if (stderr_pipe[0] > maxfd) maxfd = stderr_pipe[0]; }
 
-            struct timeval tv = { .tv_sec = 0, .tv_usec = 100000 };
-
+            struct timeval tv = {.tv_sec = 0, .tv_usec = 100000};
             if (maxfd >= 0 && select(maxfd + 1, &readfds, NULL, NULL, &tv) > 0) {
                 char buf[512];
                 int fds[2] = {stdout_pipe[0], stderr_pipe[0]};
@@ -267,7 +259,6 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
                         if (n > 0) {
                             fwrite(buf, 1, n, i == 0 ? stdout : stderr);
                             fflush(i == 0 ? stdout : stderr);
-
                             if (out_len + n < sizeof(res.output) - 1) {
                                 memcpy(res.output + out_len, buf, n);
                                 out_len += n;
@@ -290,9 +281,6 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
                 res.exit_code = WEXITSTATUS(res.exit_code);
             else
                 res.exit_code = 125;
-        } else if (result < 0) {
-            perror("waitpid");
-            return res;
         }
 
         if (timeout_sec > 0 && (time(NULL) - start_time) >= timeout_sec) {
@@ -308,7 +296,6 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
         if (stdout_pipe[0] >= 0) close(stdout_pipe[0]);
         if (stderr_pipe[0] >= 0) close(stderr_pipe[0]);
     }
-
     return res;
 }
 
@@ -369,13 +356,12 @@ int main(int argc, char **argv) {
     char command[1024];
     format_command(command, sizeof(command), argv, optind);
 
-    /* Initial sleep */
+    /* === Initial Sleep === */
     if (sleep_sec > 0) {
-        /* ... your original sleep logic (unchanged) ... */
         int elapsed = 0;
         while (elapsed < sleep_sec) {
             int remain = sleep_sec - elapsed;
-            int step = (count_sec > 0) ? count_sec : remain;
+            int step = count_sec > 0 ? count_sec : remain;
             if (step > remain) step = remain;
             if (count_sec > 0) countmsg("%d", elapsed + step);
             sleep(step);
@@ -383,14 +369,32 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* File and port waits (add your original logic here) */
+    /* === Wait for file === */
+    if (ready_file) {
+        while (!file_exists(ready_file)) {
+            int step = count_sec > 0 ? count_sec : interval_sec;
+            if (count_sec > 0) countmsg("Waiting for file... %d", step);
+            sleep(step);
+        }
+        if (verbose) logmsg("File ready: %s", ready_file);
+    }
 
-    char *cmd = resolve_command(argv[optind]);
-    argv[optind] = cmd;
+    /* === Wait for port === */
+    if (wait_port) {
+        while (!port_open(wait_port)) {
+            int step = count_sec > 0 ? count_sec : interval_sec;
+            if (count_sec > 0) countmsg("Waiting for port... %d", step);
+            sleep(step);
+        }
+        if (verbose) logmsg("Port ready: %s", wait_port);
+    }
+
+    /* Resolve command */
+    argv[optind] = resolve_command(argv[optind]);
 
     bool need_capture = success_match || retry_match || success_string || retry_string;
-
     int attempt = 0;
+
     while (1) {
         if (verbose) logmsg("DelayMe Run %s", command);
 
