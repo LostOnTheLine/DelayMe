@@ -1,5 +1,5 @@
 [![release](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml/badge.svg)](https://github.com/LostOnTheLine/DelayMe/actions/workflows/release.yaml)
-[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)]()
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)](https://github.com/LostOnTheLine/DelayMe?tab=License-1-ov-file)
 [![Version](https://img.shields.io/github/v/release/LostOnTheLine/DelayMe?display_name=tag)]()
 
 # DelayMe
