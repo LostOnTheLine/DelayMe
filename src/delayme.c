@@ -206,7 +206,7 @@ static char *resolve_command(char *cmd) {
         return resolved;
     }
 
-    return cmd;  /* PATH_AUTO - normal execvp behavior */
+    return cmd;  /* PATH_AUTO */
 }
 
 static void format_command(char *buf, size_t size, char **argv, int start) {
@@ -451,8 +451,12 @@ int main(int argc, char **argv) {
         run_result_t res = run_child(argv, optind, need_capture);
 
         bool success = false;
+
+        /* Exit code success check */
         if (has_success_exit && exit_code_matches(res.exit_code, success_exit_codes, success_exit_count))
             success = true;
+
+        /* Output-based success check */
         if (need_capture) {
             if (success_match && regex_match(success_match, res.output)) success = true;
             if (success_string && strstr(res.output, success_string)) success = true;
