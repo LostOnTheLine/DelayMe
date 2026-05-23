@@ -114,6 +114,7 @@ static void usage(void) {
 "  -v, --verbose            More verbose logging\n"
 "  -h, --help\n"
 "  --version\n"
+"  --                       End of delayme options (everything after is passed to program)\n"
     );
 }
 
@@ -382,6 +383,11 @@ int main(int argc, char **argv) {
     if (optind >= argc) {
         usage();
         return 125;
+    }
+
+    /* Support for -- separator */
+    if (optind < argc && strcmp(argv[optind], "--") == 0) {
+        optind++;
     }
 
     char command[1024];
