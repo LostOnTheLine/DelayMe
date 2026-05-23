@@ -206,7 +206,7 @@ static char *resolve_command(char *cmd) {
         return resolved;
     }
 
-    return cmd;  /* normal PATH resolution */
+    return cmd;  /* PATH_AUTO - normal execvp behavior */
 }
 
 static void format_command(char *buf, size_t size, char **argv, int start) {
@@ -288,9 +288,7 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
                     if (fd >= 0 && FD_ISSET(fd, &readfds)) {
                         ssize_t n = read(fd, buf, sizeof(buf));
                         if (n > 0) {
-                            fwrite(buf, 1, n, i == 0 ? stdout : stderr);
-                            fflush(i == 0 ? stdout : stderr);
-
+                            // NO fwrite when capturing (per your request)
                             if (out_len + n < sizeof(res.output) - 1) {
                                 memcpy(res.output + out_len, buf, n);
                                 out_len += n;
@@ -439,7 +437,10 @@ int main(int argc, char **argv) {
         if (verbose) logmsg("DelayMe Port Available Run %s", command);
     }
 
-    argv[optind] = resolve_command(argv[optind]);
+    /* Only resolve when relative or absolute mode is explicitly requested */
+    if (path_mode != PATH_AUTO) {
+        argv[optind] = resolve_command(argv[optind]);
+    }
 
     bool need_capture = success_match || retry_match || success_string || retry_string;
     int attempt = 0;
