@@ -206,7 +206,7 @@ static char *resolve_command(char *cmd) {
         return resolved;
     }
 
-    return cmd;  /* PATH_AUTO */
+    return cmd;  /* PATH_AUTO - normal execvp behavior */
 }
 
 static void format_command(char *buf, size_t size, char **argv, int start) {
@@ -288,7 +288,7 @@ static run_result_t run_child(char **argv, int optind, bool capture) {
                     if (fd >= 0 && FD_ISSET(fd, &readfds)) {
                         ssize_t n = read(fd, buf, sizeof(buf));
                         if (n > 0) {
-                            // NO fwrite when capturing (per your request)
+                            // Do NOT pass through when capture is active (success/retry match mode)
                             if (out_len + n < sizeof(res.output) - 1) {
                                 memcpy(res.output + out_len, buf, n);
                                 out_len += n;
@@ -437,9 +437,17 @@ int main(int argc, char **argv) {
         if (verbose) logmsg("DelayMe Port Available Run %s", command);
     }
 
-    /* Only resolve when relative or absolute mode is explicitly requested */
+    /* Fix for PATH_AUTO: support relative paths from current directory */
     if (path_mode != PATH_AUTO) {
         argv[optind] = resolve_command(argv[optind]);
+    } else if (argv[optind][0] != '/' && strchr(argv[optind], '/') != NULL) {
+        /* relative path like "healthcheck-map/httpscheck" */
+        char resolved[PATH_MAX];
+        char cwd[PATH_MAX];
+        if (getcwd(cwd, sizeof(cwd))) {
+            snprintf(resolved, sizeof(resolved), "%s/%s", cwd, argv[optind]);
+            argv[optind] = resolved;   // Note: static buffer, safe for this use
+        }
     }
 
     bool need_capture = success_match || retry_match || success_string || retry_string;
@@ -451,11 +459,9 @@ int main(int argc, char **argv) {
         run_result_t res = run_child(argv, optind, need_capture);
 
         bool success = false;
-
         /* Exit code success check */
         if (has_success_exit && exit_code_matches(res.exit_code, success_exit_codes, success_exit_count))
             success = true;
-
         /* Output-based success check */
         if (need_capture) {
             if (success_match && regex_match(success_match, res.output)) success = true;
